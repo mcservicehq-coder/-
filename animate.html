@@ -1,0 +1,295 @@
+<title>ぺったん餅つき</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=Zen+Kaku+Gothic+New:wght@400;700&display=swap">
+<style>
+/* Layout: 祭りの紅白幕のような上帯 → 3Dステージ → 操作列。ステージが主役。 */
+:root {
+  --bg: #f6f3ef;
+  --fg: #2a1d17;
+  --muted: #7a685d;
+  --stage: #e9e2d9;
+  --line: #d9cfc4;
+  --red: #c8232c;
+  --wood: #b07a45;
+  --panel: #fffdfa;
+  --font-display: "Dela Gothic One", "Hiragino Sans", "Yu Gothic", sans-serif;
+  --font-body: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1b1512; --fg: #f1e8e0; --muted: #b3a296; --stage: #2a211c;
+    --line: #43362e; --red: #ef4b52; --wood: #d39a62; --panel: #241c18; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #1b1512; --fg: #f1e8e0; --muted: #b3a296; --stage: #2a211c;
+  --line: #43362e; --red: #ef4b52; --wood: #d39a62; --panel: #241c18; color-scheme: dark;
+}
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 16px 24px;
+}
+.wrap { max-width: 960px; margin: 0 auto; display: grid; gap: 14px; }
+.kohaku { height: 10px; border-radius: 2px;
+  background: repeating-linear-gradient(90deg, var(--red) 0 28px, var(--panel) 28px 56px); border: 1px solid var(--line); }
+header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 8px 20px; }
+h1 { font-family: var(--font-display); font-weight: 400; font-size: clamp(26px, 5vw, 38px); margin: 0; letter-spacing: .02em; text-wrap: balance; }
+.sub { color: var(--muted); margin: 4px 0 0; font-size: 14px; }
+.count { display: flex; align-items: baseline; gap: 6px; }
+.count b { font-family: var(--font-display); font-weight: 400; font-size: 34px; color: var(--red); font-variant-numeric: tabular-nums; min-width: 2ch; text-align: right; }
+.count span { color: var(--muted); font-size: 13px; letter-spacing: .08em; }
+.stage { position: relative; height: min(68vh, 620px); min-height: 340px; max-width: 100%;
+  background: var(--stage); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.pettan { position: absolute; left: 12%; top: 46%; font-family: var(--font-display); font-size: clamp(28px, 6vw, 48px);
+  color: var(--red); pointer-events: none; opacity: 0; transform: scale(.7) rotate(-8deg); transition: opacity .5s, transform .5s; }
+.pettan.on { opacity: 1; transform: scale(1) rotate(-8deg); transition: none; }
+.loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); }
+.controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+button { font: inherit; font-weight: 700; padding: 8px 16px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel); color: var(--fg); }
+button.primary { background: var(--red); border-color: var(--red); color: #fff; min-width: 7.5em; }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--wood); outline-offset: 2px; }
+label { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; }
+input[type=range] { accent-color: var(--red); width: 140px; }
+.hint { color: var(--muted); font-size: 13px; margin: 0; }
+</style>
+
+<div class="wrap">
+  <div class="kohaku" aria-hidden="true"></div>
+  <header>
+    <div>
+      <h1>ぺったん餅つき</h1>
+      <p class="sub">杵を振り上げて、臼の餅をつく3Dモデル</p>
+    </div>
+    <div class="count" aria-live="polite"><b id="count">0</b><span>回 ついた</span></div>
+  </header>
+  <div class="stage" id="stage">
+    <div class="loading" id="loading">モデルを読み込み中…</div>
+    <div class="pettan" id="pettan" aria-hidden="true">ぺったん！</div>
+  </div>
+  <div class="controls">
+    <button class="primary" id="play" type="button">一時停止</button>
+    <label for="speed">テンポ <input id="speed" type="range" min="0.4" max="2" step="0.1" value="1"> <output id="speedOut">×1.0</output></label>
+    <button id="reset" type="button">視点を戻す</button>
+  </div>
+  <p class="hint">ドラッグで回転、ホイールやピンチで拡大縮小できます。</p>
+</div>
+
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const GLB_B64 = /*GLB*/null;
+const V = (x, y, z) => new THREE.Vector3(x, y, z);
+
+// ---- 静止ポーズの基準値（build_model.py と同じ数値） ----
+const PIVOT = V(0, 0.98, 0);                 // 上半身を傾ける腰の支点
+const GRIP_L0 = V(0.30, 0.86, 0.22), GRIP_R0 = V(-0.22, 1.02, 0.30);
+const D0 = GRIP_R0.clone().sub(GRIP_L0).normalize();
+const KINE_LEN = GRIP_R0.distanceTo(GRIP_L0) + 0.42;  // 左手→杵頭の中心
+const SHOULDER = { R: V(-0.24, 1.40, -0.01), L: V(0.24, 1.40, -0.01) };
+const UPPER = 0.32, FORE = 0.31;
+const MOCHI_C = V(-0.55, 0.465, 0.55);
+const TORSO = ['chest','shoulders','pecs','nipples','chest_hair','neck','head','jaw','ears','nose','mouth','tongue','teeth','eyes','brows','hachimaki','hachimaki_knot','haramaki'];
+const KINE = ['kine_shaft','kine_head','kine_ends'];
+const OLD_ARMS = ['upper_arm_R','forearm_R','hand_R','upper_arm_L','forearm_L','hand_L'];
+
+// ---- キーポーズ ----
+const pose = (g, d, off, lean, twist) => ({ g, d: d.normalize(), off, lean, twist });
+const REST = pose(GRIP_L0.clone(), D0.clone(), 0.55, 0, 0);
+const UP = pose(V(0.10, 1.05, 0.35), V(-0.45, 0.85, -0.30), 0.42, -0.10, -0.15);
+const UP_BACK = pose(UP.g.clone(), UP.d.clone(), UP.off, UP.lean - 0.08, UP.twist - 0.05);  // 振り下ろす前の「ため」
+const downDir = V(-0.86, -0.19, 0.46).normalize();
+const DOWN = pose(V(-0.55, 0.675, 0.55).sub(downDir.clone().multiplyScalar(KINE_LEN)), downDir, 0.30, 0.30, -0.35);
+
+function mix(a, b, t) {
+  return { g: a.g.clone().lerp(b.g, t), d: a.d.clone().lerp(b.d, t).normalize(),
+    off: a.off + (b.off - a.off) * t, lean: a.lean + (b.lean - a.lean) * t, twist: a.twist + (b.twist - a.twist) * t };
+}
+const easeInOut = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const easeIn = t => t * t * t;
+
+// 1周期 1.7秒: 下で止める → 振り上げ → ため → 振り下ろし（1.5秒で着地）
+const CYCLE = 1.7, IMPACT = 1.5;
+function poseAt(p) {
+  if (p < 0.18) return DOWN;
+  if (p < 0.85) return mix(DOWN, UP, easeInOut((p - 0.18) / 0.67));
+  if (p < 1.25) return mix(UP, UP_BACK, Math.sin((p - 0.85) / 0.4 * Math.PI) * 0.5);
+  if (p < IMPACT) return mix(UP, DOWN, easeIn((p - 1.25) / 0.25));
+  return DOWN;
+}
+
+function basis(d) {
+  const a = V(0, 1, 0).sub(d.clone().multiplyScalar(d.y)).normalize();
+  const b = d.clone().cross(a);
+  return new THREE.Matrix4().makeBasis(d, a, b);
+}
+const B0inv = basis(D0).invert();
+
+// ---- three.js 準備 ----
+const stage = document.getElementById('stage');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+stage.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 50);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+function resetView() { camera.position.set(1.5, 1.45, 3.4); controls.target.set(-0.15, 0.9, 0.25); controls.update(); }
+resetView();
+
+scene.add(new THREE.HemisphereLight(0xfff4ea, 0x6b5a50, 1.4));
+const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+sun.position.set(1.8, 4, 2.6);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -1.6, right: 1.6, top: 2.2, bottom: -0.4 });
+scene.add(sun);
+const groundMat = new THREE.MeshStandardMaterial({ roughness: 1 });
+const ground = new THREE.Mesh(new THREE.CircleGeometry(2.4, 64), groundMat);
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+
+function applyTheme() {
+  const cs = getComputedStyle(document.documentElement);
+  scene.background = new THREE.Color(cs.getPropertyValue('--stage').trim());
+  groundMat.color = new THREE.Color(cs.getPropertyValue('--line').trim());
+}
+applyTheme();
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+new MutationObserver(applyTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+function resize() {
+  const w = stage.clientWidth, h = stage.clientHeight;
+  renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(stage);
+
+// ---- 腕（毎フレーム 2関節IK で組み直す） ----
+const skin = new THREE.MeshStandardMaterial({ color: '#e8b28c', roughness: 0.65 });
+function seg(r0, r1) {
+  const g = new THREE.CylinderGeometry(r1, r0, 1, 20); g.translate(0, 0.5, 0);
+  const m = new THREE.Mesh(g, skin); m.castShadow = true; scene.add(m); return m;
+}
+function ball(r, sy = 1) {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(r, 20, 14), skin); m.scale.y = sy; m.castShadow = true; scene.add(m); return m;
+}
+const arms = {};
+for (const s of ['R', 'L']) arms[s] = { up: seg(0.07, 0.057), fore: seg(0.056, 0.045), sh: ball(0.07), el: ball(0.057), hand: ball(0.05, 0.9) };
+const Y = V(0, 1, 0);
+function placeSeg(m, a, b) {
+  const dir = b.clone().sub(a); const len = dir.length();
+  m.position.copy(a); m.quaternion.setFromUnitVectors(Y, dir.normalize()); m.scale.set(1, len, 1);
+}
+function ik(S, T, pole) {
+  const st = T.clone().sub(S); let d = st.length(); const u = st.normalize();
+  d = Math.min(d, UPPER + FORE - 1e-4);
+  const x = (UPPER * UPPER - FORE * FORE + d * d) / (2 * d);
+  const h = Math.sqrt(Math.max(UPPER * UPPER - x * x, 0));
+  const v = pole.clone().sub(u.clone().multiplyScalar(pole.dot(u))).normalize();
+  const E = S.clone().add(u.clone().multiplyScalar(x)).add(v.multiplyScalar(h));
+  const H = S.clone().add(u.multiplyScalar(d));
+  return { E, H };
+}
+
+// ---- モデル読み込み ----
+const parts = {};
+function srgbToLinear(c) { return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+async function loadGLB() {
+  let buf;
+  if (GLB_B64) { const bin = atob(GLB_B64); buf = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i); buf = buf.buffer; }
+  else buf = await (await fetch('mochitsuki_man.glb')).arrayBuffer();
+  return new Promise((res, rej) => new GLTFLoader().parse(buf, '', res, rej));
+}
+loadGLB().then(gltf => {
+  gltf.scene.traverse(o => {
+    if (!o.isMesh) return;
+    const c = o.geometry.getAttribute('color');
+    if (c) {  // trimesh は sRGB 値をそのまま COLOR_0 に入れるので線形に直す
+      const out = new Float32Array(c.count * 3);
+      for (let i = 0; i < c.count; i++) { out[i*3] = srgbToLinear(c.getX(i)); out[i*3+1] = srgbToLinear(c.getY(i)); out[i*3+2] = srgbToLinear(c.getZ(i)); }
+      o.geometry.setAttribute('color', new THREE.BufferAttribute(out, 3));
+    }
+    o.material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.65 });
+    o.castShadow = true; o.receiveShadow = true;
+    o.matrixAutoUpdate = false; o.updateMatrix();
+    parts[o.name] = o;
+  });
+  scene.add(gltf.scene);
+  for (const n of OLD_ARMS) if (parts[n]) parts[n].visible = false;
+  document.getElementById('loading').remove();
+  ready = true;
+}).catch(e => { document.getElementById('loading').textContent = 'モデルを読み込めませんでした: ' + e.message; });
+
+// ---- アニメーション ----
+let ready = false, playing = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+let speed = 1, phase = 0.5, squash = 0, count = 0, last = performance.now();
+const playBtn = document.getElementById('play');
+const pettan = document.getElementById('pettan');
+const countEl = document.getElementById('count');
+function syncPlay() { playBtn.textContent = playing ? '一時停止' : '再生'; }
+syncPlay();
+playBtn.onclick = () => { playing = !playing; syncPlay(); };
+document.getElementById('reset').onclick = resetView;
+const speedIn = document.getElementById('speed'), speedOut = document.getElementById('speedOut');
+speedIn.oninput = () => { speed = +speedIn.value; speedOut.textContent = '×' + speed.toFixed(1); };
+
+const tmpM = new THREE.Matrix4();
+function apply(p) {
+  const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(p.lean, p.twist, 0, 'YXZ'));
+  const torsoM = new THREE.Matrix4().makeTranslation(PIVOT.x, PIVOT.y, PIVOT.z)
+    .multiply(new THREE.Matrix4().makeRotationFromQuaternion(q))
+    .multiply(new THREE.Matrix4().makeTranslation(-PIVOT.x, -PIVOT.y, -PIVOT.z));
+  for (const n of TORSO) if (parts[n]) parts[n].matrix.copy(torsoM);
+
+  const kineM = new THREE.Matrix4().makeTranslation(p.g.x, p.g.y, p.g.z)
+    .multiply(basis(p.d)).multiply(B0inv)
+    .multiply(tmpM.makeTranslation(-GRIP_L0.x, -GRIP_L0.y, -GRIP_L0.z));
+  for (const n of KINE) if (parts[n]) parts[n].matrix.copy(kineM);
+
+  const targets = { L: p.g, R: p.g.clone().add(p.d.clone().multiplyScalar(p.off)) };
+  for (const s of ['R', 'L']) {
+    const S = SHOULDER[s].clone().applyMatrix4(torsoM);
+    const pole = V(s === 'R' ? -1 : 1, -0.6, -0.4).applyQuaternion(q);
+    const { E, H } = ik(S, targets[s], pole);
+    const a = arms[s];
+    placeSeg(a.up, S, E); placeSeg(a.fore, E, H);
+    a.sh.position.copy(S); a.el.position.copy(E); a.hand.position.copy(H);
+  }
+
+  if (parts.mochi) {
+    const k = squash;
+    parts.mochi.matrix.makeTranslation(MOCHI_C.x, MOCHI_C.y - 0.02 * k, MOCHI_C.z)
+      .multiply(tmpM.makeScale(1 + 0.25 * k, 1 - 0.45 * k, 1 + 0.25 * k))
+      .multiply(new THREE.Matrix4().makeTranslation(-MOCHI_C.x, -MOCHI_C.y, -MOCHI_C.z));
+  }
+}
+
+function frame(now) {
+  const dt = Math.min((now - last) / 1000, 0.1); last = now;
+  if (ready) {
+    if (playing) {
+      const prev = phase;
+      phase = (phase + dt * speed) % CYCLE;
+      const crossed = prev < IMPACT && (phase >= IMPACT || phase < prev);
+      if (crossed) {
+        squash = 1; count++; countEl.textContent = count;
+        pettan.classList.add('on'); requestAnimationFrame(() => requestAnimationFrame(() => pettan.classList.remove('on')));
+      }
+      squash = Math.max(0, squash - dt * speed * 3);
+    }
+    apply(poseAt(phase));
+  }
+  controls.update();
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
