@@ -1,0 +1,17 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Mochitsuki 3D</title>
+<style>html,body{margin:0;height:100%;background:#eef0f3}canvas{display:block}</style></head><body>
+<script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+const r=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});r.setSize(innerWidth,innerHeight);document.body.appendChild(r.domElement);
+const s=new THREE.Scene();s.background=new THREE.Color(0xeef0f3);
+const c=new THREE.PerspectiveCamera(35,innerWidth/innerHeight,0.01,50);
+const az=parseFloat(new URLSearchParams(location.search).get('az')||'20')*Math.PI/180;
+c.position.set(Math.sin(az)*3.6,1.2,Math.cos(az)*3.6);
+const o=new OrbitControls(c,r.domElement);o.target.set(-0.1,0.9,0.3);o.update();
+s.add(new THREE.HemisphereLight(0xffffff,0x888888,1.6));const d=new THREE.DirectionalLight(0xffffff,1.6);d.position.set(2,4,3);s.add(d);
+new GLTFLoader().load(new URLSearchParams(location.search).get('src')||'mochitsuki_man.glb',g=>{g.scene.traverse(m=>{if(m.isMesh){m.material=new THREE.MeshStandardMaterial({vertexColors:true,roughness:.7});}});s.add(g.scene);window.ready=1;});
+(function a(){requestAnimationFrame(a);o.update();r.render(s,c);})();
+</script></body></html>
